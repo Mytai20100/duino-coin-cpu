@@ -1,0 +1,1 @@
+sudo apt install build-essential cmake libssl-dev libcurl4-openssl-dev libjsoncpp-dev
