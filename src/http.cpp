@@ -4,7 +4,6 @@
 #include <curl/curl.h>
 #include <sstream>
 
-// Callback function để nhận data từ curl
 static size_t write_callback(void* contents, size_t size, size_t nmemb, void* userp) {
     ((std::string*)userp)->append((char*)contents, size * nmemb);
     return size * nmemb;
@@ -47,7 +46,6 @@ std::string HttpClient::get(const std::string& url) {
     return response;
 }
 
-// Giữ lại các hàm khác để tránh lỗi compile
 bool HttpClient::parse_url(const std::string& url, std::string& host, 
                            std::string& path, int& port, bool& use_ssl) {
     return true;
