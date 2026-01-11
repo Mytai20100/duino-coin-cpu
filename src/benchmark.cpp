@@ -1,4 +1,4 @@
-// Uia 
+// Uia :3
 #include "../include/benchmark.h"
 #include "../include/hasher.h"
 #include "../include/logger.h"
