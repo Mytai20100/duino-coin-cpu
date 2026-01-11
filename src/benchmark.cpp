@@ -1,3 +1,4 @@
+// Uia 
 #include "../include/benchmark.h"
 #include "../include/hasher.h"
 #include "../include/logger.h"
@@ -50,7 +51,7 @@ void Benchmark::run(int threads) {
     
     double hashrate = total_hashes / duration;
     
-    Logger::success("Benchmark complete!");
+    Logger::success("Benchmark complete! :3 muhehe");
     Logger::info("Total hashes: " + std::to_string(total_hashes.load()));
     Logger::info("Duration: " + std::to_string(duration) + " seconds");
     Logger::info("Hashrate: " + std::to_string(hashrate/1000.0) + " kH/s");
