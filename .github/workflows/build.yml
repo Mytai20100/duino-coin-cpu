@@ -1,0 +1,70 @@
+name: build
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        arch: [x86_64, aarch64]
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Extract version from ChangeLog
+        id: version
+        run: |
+          VERSION=$(grep -oP '\[Version\s+\K[^\]]+' ChangeLog | tail -n 1)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Install build tools
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential cmake wget tar xz-utils
+
+      - name: Download musl toolchain
+        run: |
+          if [ "${{ matrix.arch }}" = "x86_64" ]; then
+            TOOLCHAIN=x86_64-linux-musl
+          else
+            TOOLCHAIN=aarch64-linux-musl
+          fi
+
+          wget https://musl.cc/${TOOLCHAIN}-cross.tgz
+          tar -xzf ${TOOLCHAIN}-cross.tgz
+          echo "TOOLCHAIN=${TOOLCHAIN}" >> $GITHUB_ENV
+
+      - name: Build static binary (musl)
+        run: |
+          rm -rf build
+          mkdir build
+          cd build
+
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=$PWD/../${TOOLCHAIN}-cross/bin/${TOOLCHAIN}-gcc \
+            -DCMAKE_CXX_COMPILER=$PWD/../${TOOLCHAIN}-cross/bin/${TOOLCHAIN}-g++ \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_EXE_LINKER_FLAGS="-static"
+
+          make -j$(nproc)
+
+      - name: Prepare artifacts
+        run: |
+          mkdir -p release
+          cp build/duino-cpu release/duino-cpu-linux-${{ matrix.arch }}
+
+      - name: Upload release artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
+          files: release/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
