@@ -8,7 +8,7 @@
 #include <sstream>
 #include <iomanip>
 
-#define VERSION "0.0.1"
+#define VERSION "4.3.0"
 #define SEPARATOR ","
 
 class Config {
@@ -17,18 +17,29 @@ public:
     std::string mining_key = "None";
     std::string rig_identifier = "Auto";
     std::string start_diff = "NET";
+    std::string pool_address = "";  // Custom pool
+    int pool_port = 0;
     int threads = 0;
     int intensity = 95;
-    int soc_timeout = 10;
+    int soc_timeout = 15;
     int report_interval = 300;
+    int retry_delay = 5;
+    int max_retries = 3;
     std::string miner_id;
-    bool invisible_mode = false;  // New flag for -inv
+    bool invisible_mode = false;
+    bool use_avx = false;
 
     Config() {
         std::random_device rd;
         std::mt19937 gen(rd());
         std::uniform_int_distribution<> dis(0, 2811);
         miner_id = std::to_string(dis(gen));
+        
+#if defined(USE_AVX512)
+        use_avx = true;
+#elif defined(USE_AVX2)
+        use_avx = true;
+#endif
     }
 
     void validate() {
@@ -51,17 +62,6 @@ public:
     }
 
     void print() const {
-        std::cout << "Configuration:\n";
-        std::cout << "  Username: " << username << "\n";
-        std::cout << "  Mining Key: " << (mining_key != "None" ? "Set" : "None") << "\n";
-        std::cout << "  Rig ID: " << rig_identifier << "\n";
-        std::cout << "  Threads: " << threads << "\n";
-        std::cout << "  Difficulty: " << start_diff << "\n";
-        std::cout << "  Intensity: " << intensity << "%\n";
-        if (invisible_mode) {
-            std::cout << "  Invisible Mode: Enabled\n";
-        }
-        std::cout << "\n";
     }
 
 private:

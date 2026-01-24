@@ -1,0 +1,7 @@
+build/
+*.o
+*.a
+duino-cpu
+CMakeCache.txt
+CMakeFiles/
+ui.sh

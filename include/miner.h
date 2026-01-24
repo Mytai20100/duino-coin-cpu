@@ -7,15 +7,16 @@
 #include <vector>
 #include <thread>
 #include <memory>
+#include <mutex>
 
 struct MiningStats {
     std::atomic<unsigned long> accepted{0};
     std::atomic<unsigned long> rejected{0};
     std::atomic<unsigned long> blocks{0};
-    std::atomic<double> total_hashrate{0.0};
+    std::vector<double> thread_hashrates;
+    mutable std::mutex hashrate_mutex;
 };
 
-// Struct để trả về giá trị (không có atomic)
 struct MiningStatsSnapshot {
     unsigned long accepted;
     unsigned long rejected;
@@ -46,11 +47,16 @@ public:
     void start();
     void stop();
     MiningStatsSnapshot get_stats() const {
+        std::lock_guard<std::mutex> lock(stats.hashrate_mutex);
+        double total = 0.0;
+        for (double hr : stats.thread_hashrates) {
+            total += hr;
+        }
         return {
             stats.accepted.load(),
             stats.rejected.load(),
             stats.blocks.load(),
-            stats.total_hashrate.load()
+            total
         };
     }
 };

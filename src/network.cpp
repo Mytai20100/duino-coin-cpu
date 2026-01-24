@@ -1,14 +1,18 @@
 #include "../include/network.h"
 #include "../include/logger.h"
-#include <sys/socket.h>
 #include "../include/http_client.h"
 #include "../include/json.h"
 #include <netinet/in.h>
+#include <netinet/ip.h>
+#include <sys/socket.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <unistd.h>
 #include <cstring>
 #include <poll.h>
+#include <fcntl.h>
+#include <errno.h>
 
 bool NetworkManager::initialize() {
     return true;
@@ -53,6 +57,8 @@ bool SocketClient::connect(const std::string& host, int port, int timeout) {
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+    hints.ai_flags = AI_ADDRCONFIG | AI_V4MAPPED;
     
     std::string port_str = std::to_string(port);
     
@@ -61,22 +67,68 @@ bool SocketClient::connect(const std::string& host, int port, int timeout) {
     }
     
     for (p = servinfo; p != nullptr; p = p->ai_next) {
-        sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+        sockfd = socket(p->ai_family, p->ai_socktype | SOCK_CLOEXEC, p->ai_protocol);
         if (sockfd == -1) continue;
         
-        struct timeval tv;
-        tv.tv_sec = timeout;
-        tv.tv_usec = 0;
-        setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-        setsockopt(sockfd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+        int flags = fcntl(sockfd, F_GETFL, 0);
+        fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
         
-        if (::connect(sockfd, p->ai_addr, p->ai_addrlen) != -1) {
-            connected = true;
-            break;
+        int flag = 1;
+        setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
+        
+        flag = 1;
+        setsockopt(sockfd, IPPROTO_TCP, TCP_QUICKACK, &flag, sizeof(flag));
+        
+        int keepalive = 1;
+        setsockopt(sockfd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
+        
+        int keepidle = 60;
+        setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPIDLE, &keepidle, sizeof(keepidle));
+        
+        int keepintvl = 10;
+        setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPINTVL, &keepintvl, sizeof(keepintvl));
+        
+        int keepcnt = 3;
+        setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPCNT, &keepcnt, sizeof(keepcnt));
+        
+        int bufsize = 262144;
+        setsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, &bufsize, sizeof(bufsize));
+        setsockopt(sockfd, SOL_SOCKET, SO_SNDBUF, &bufsize, sizeof(bufsize));
+        
+        int tos = 0x10;
+        setsockopt(sockfd, IPPROTO_IP, IP_TOS, &tos, sizeof(tos));
+        
+        int user_timeout = timeout * 1000;
+        setsockopt(sockfd, IPPROTO_TCP, TCP_USER_TIMEOUT, &user_timeout, sizeof(user_timeout));
+        
+        if (::connect(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
+            if (errno == EINPROGRESS) {
+                struct pollfd pfd;
+                pfd.fd = sockfd;
+                pfd.events = POLLOUT;
+                
+                int ret = poll(&pfd, 1, timeout * 1000);
+                if (ret > 0) {
+                    int error = 0;
+                    socklen_t len = sizeof(error);
+                    getsockopt(sockfd, SOL_SOCKET, SO_ERROR, &error, &len);
+                    
+                    if (error == 0) {
+                        fcntl(sockfd, F_SETFL, flags);
+                        connected = true;
+                        break;
+                    }
+                }
+            }
+            
+            close(sockfd);
+            sockfd = -1;
+            continue;
         }
         
-        close(sockfd);
-        sockfd = -1;
+        fcntl(sockfd, F_SETFL, flags);
+        connected = true;
+        break;
     }
     
     freeaddrinfo(servinfo);
@@ -87,8 +139,31 @@ bool SocketClient::send(const std::string& data) {
     if (!connected) return false;
     
     std::string msg = data + "\n";
-    ssize_t sent = ::send(sockfd, msg.c_str(), msg.length(), 0);
-    return sent == static_cast<ssize_t>(msg.length());
+    size_t total_sent = 0;
+    size_t remaining = msg.length();
+    
+    while (total_sent < msg.length()) {
+        ssize_t sent = ::send(sockfd, msg.c_str() + total_sent, remaining, MSG_NOSIGNAL);
+        
+        if (sent == -1) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                struct pollfd pfd;
+                pfd.fd = sockfd;
+                pfd.events = POLLOUT;
+                
+                if (poll(&pfd, 1, 5000) <= 0) {
+                    return false;
+                }
+                continue;
+            }
+            return false;
+        }
+        
+        total_sent += sent;
+        remaining -= sent;
+    }
+    
+    return true;
 }
 
 std::string SocketClient::receive(int timeout) {
@@ -101,10 +176,13 @@ std::string SocketClient::receive(int timeout) {
     int ret = poll(&pfd, 1, timeout * 1000);
     if (ret <= 0) return "";
     
-    char buffer[1024];
-    ssize_t n = recv(sockfd, buffer, sizeof(buffer) - 1, 0);
+    char buffer[4096];
+    ssize_t n = recv(sockfd, buffer, sizeof(buffer) - 1, MSG_DONTWAIT);
     
     if (n <= 0) {
+        if (n == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            return "";
+        }
         connected = false;
         return "";
     }
@@ -117,11 +195,15 @@ std::string SocketClient::receive(int timeout) {
         result = result.substr(0, newline);
     }
     
+    int flag = 1;
+    setsockopt(sockfd, IPPROTO_TCP, TCP_QUICKACK, &flag, sizeof(flag));
+    
     return result;
 }
 
 void SocketClient::disconnect() {
     if (sockfd != -1) {
+        shutdown(sockfd, SHUT_RDWR);
         close(sockfd);
         sockfd = -1;
     }

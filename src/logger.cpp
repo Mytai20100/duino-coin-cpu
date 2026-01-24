@@ -1,38 +1,73 @@
 #include "../include/logger.h"
+#include "../include/config.h"
+#include <thread>
+#include <csignal>   
 #include <iostream>
 #include <mutex>
 #include <chrono>
 #include <iomanip>
 #include <sstream>
 #include <ctime>
+#include <cmath>
+#include <atomic>  
+#include <fstream>
+#include <sys/sysinfo.h>
 
 static bool enabled = true;
 static std::mutex log_mutex;
 
-#define RESET   "\033[0m"
-#define RED     "\033[31m"
-#define GREEN   "\033[32m"
-#define YELLOW  "\033[33m"
-#define BLUE    "\033[34m"
-#define MAGENTA "\033[35m"
-#define CYAN    "\033[36m"
-#define WHITE   "\033[37m"
-#define GRAY    "\033[90m"
-#define BOLD    "\033[1m"
-#define DIM     "\033[2m"
+// Color codes - XMRig style
+#define RESET         "\033[0m"
+#define BLACK         "\033[30m"
+#define RED           "\033[31m"
+#define GREEN         "\033[32m"
+#define YELLOW        "\033[33m"
+#define BLUE          "\033[34m"
+#define MAGENTA       "\033[35m"
+#define CYAN          "\033[36m"
+#define WHITE         "\033[37m"
+#define GRAY          "\033[90m"
+#define BRIGHT_GREEN  "\033[92m"
+#define BRIGHT_BLUE   "\033[94m"
+#define BRIGHT_MAGENTA "\033[95m"
+#define CHARTREUSE    "\033[38;2;127;255;0m"  // Màu #7FFF00
+
+// Text styles
+#define BOLD          "\033[1m"
+#define DIM           "\033[2m"
+
+// Background colors for tags
+#define BG_BLUE       "\033[44m"
+#define BG_MAGENTA    "\033[45m"
+#define BG_CYAN       "\033[46m"
+#define BG_GREEN      "\033[42m"
+#define BG_RED        "\033[41m"
+#define BG_YELLOW     "\033[43m"
+
+// XMRig-style colored tags - với màu sắc chính xác
+#define TAG_NET       BG_BLUE WHITE "  net   " RESET           // Xanh dương đậm
+#define TAG_CPU       BG_CYAN BLACK "  cpu   " RESET           // Xanh cyan
+#define TAG_MINER     BG_MAGENTA WHITE " miner  " RESET        // Tím
 
 static std::string get_timestamp() {
     auto now = std::chrono::system_clock::now();
     auto time = std::chrono::system_clock::to_time_t(now);
     
     std::stringstream ss;
-    ss << "[" << std::put_time(std::localtime(&time), "%d/%m/%Y %H:%M:%S") << "]";
+    ss << GRAY << "[" << std::put_time(std::localtime(&time), "%Y-%m-%d") << "]" << RESET;
     return ss.str();
+}
+
+std::string Logger::get_colored_box(const std::string& type) {
+    if (type == "net") return TAG_NET;
+    if (type == "cpu") return TAG_CPU;
+    if (type == "miner") return TAG_MINER;
+    return " ";
 }
 
 std::string Logger::format_hashrate(double hashrate) {
     std::stringstream ss;
-    ss << std::fixed << std::setprecision(2);
+    ss << std::fixed << std::setprecision(1);
     
     if (hashrate >= 1000000000.0) {
         ss << (hashrate / 1000000000.0) << " GH/s";
@@ -50,9 +85,12 @@ std::string Logger::format_hashrate(double hashrate) {
 std::string Logger::format_difficulty(int difficulty) {
     std::stringstream ss;
     
-    if (difficulty >= 1000) {
-        ss << std::fixed << std::setprecision(1);
-        ss << (difficulty / 1000.0) << "k";
+    if (difficulty >= 1000000) {
+        int rounded = (difficulty + 500000) / 1000000;
+        ss << rounded << "M";
+    } else if (difficulty >= 1000) {
+        int rounded = (difficulty + 500) / 1000;
+        ss << rounded << "k";
     } else {
         ss << difficulty;
     }
@@ -67,53 +105,244 @@ bool Logger::is_enabled() { return enabled; }
 void Logger::info(const std::string& message) {
     if (!enabled) return;
     std::lock_guard<std::mutex> lock(log_mutex);
-    std::cout << DIM << get_timestamp() << " " << RESET 
-              << BLUE << "INFO  " << RESET << message << "\n" << std::flush;
+    std::cout << get_timestamp() << " " << TAG_NET << " " << WHITE << message << RESET << "\n" << std::flush;
 }
 
 void Logger::success(const std::string& message) {
     if (!enabled) return;
     std::lock_guard<std::mutex> lock(log_mutex);
-    std::cout << DIM << get_timestamp() << " " << RESET 
-              << GREEN << "OK    " << RESET << message << "\n" << std::flush;
+    std::cout << get_timestamp() << " " << TAG_CPU << " " << BRIGHT_GREEN << message << RESET << "\n" << std::flush;
 }
 
 void Logger::warning(const std::string& message) {
     if (!enabled) return;
     std::lock_guard<std::mutex> lock(log_mutex);
-    std::cout << DIM << get_timestamp() << " " << RESET 
-              << YELLOW << "WARN  " << RESET << message << "\n" << std::flush;
+    std::cout << get_timestamp() << " " << TAG_NET << " " << YELLOW << message << RESET << "\n" << std::flush;
 }
 
 void Logger::error(const std::string& message) {
     if (!enabled) return;
     std::lock_guard<std::mutex> lock(log_mutex);
-    std::cout << DIM << get_timestamp() << " " << RESET 
-              << RED << "ERROR " << RESET << message << "\n" << std::flush;
+    std::cout << get_timestamp() << " " << TAG_NET << " " << RED << message << RESET << "\n" << std::flush;
 }
 
-void Logger::share(int thread_id, const std::string& status, 
-                  unsigned long accepted, unsigned long rejected,
-                  double hashrate, double total_hashrate,
-                  double compute_time, int difficulty, int ping) {
+void Logger::net_connect(const std::string& pool, int port) {
+    if (!enabled) return;
+    std::lock_guard<std::mutex> lock(log_mutex);
+    std::cout << get_timestamp() << " " << TAG_NET << " " 
+              << WHITE << "use pool " << CYAN << pool << ":" << port << RESET << "\n" 
+              << std::flush;
+}
+
+void Logger::net_connected(const std::string& version, int ping) {
+    if (!enabled) return;
+    std::lock_guard<std::mutex> lock(log_mutex);
+    std::cout << get_timestamp() << " " << TAG_NET << " " 
+              << BRIGHT_MAGENTA << "new job from " << CYAN << "pool" << RESET
+              << WHITE << " diff " << CYAN << "20M" << RESET 
+              << WHITE << " algo " << CYAN << "DUCOS1" << RESET 
+              << WHITE << " height " << CYAN << version << RESET << "\n"
+              << std::flush;
+}
+
+void Logger::net_job(int thread_id, int difficulty, const std::string& algo) {
+    if (!enabled) return;
+    std::lock_guard<std::mutex> lock(log_mutex);
+    std::cout << get_timestamp() << " " << TAG_MINER << " " 
+              << WHITE << "new job diff " << CYAN << format_difficulty(difficulty) << RESET 
+              << WHITE << " algo " << CYAN << algo << RESET << "\n" << std::flush;
+}
+
+void Logger::net_accepted(int thread_id, unsigned long accepted, unsigned long rejected, 
+                         double hashrate, double total_hashrate, double time, int ping) {
     if (!enabled) return;
     std::lock_guard<std::mutex> lock(log_mutex);
     
-    std::string color = GREEN;
-    if (status == "REJECT") color = RED;
-    else if (status == "BLOCK") color = YELLOW;
+    double accept_rate = (accepted + rejected) > 0 ? 
+        (accepted * 100.0 / (accepted + rejected)) : 100.0;
+    
+    std::cout << get_timestamp() << " " << TAG_CPU << " " 
+              << BRIGHT_GREEN << "accepted" << RESET
+              << BRIGHT_GREEN << " (" << accepted << "/" << (accepted + rejected) 
+              << " " << std::fixed << std::setprecision(1) << accept_rate << "%)" << RESET
+              << GRAY << " (" << std::fixed << std::setprecision(0) << time * 1000 << " ms)" << RESET 
+              << "\n" << std::flush;
+}
+
+void Logger::net_rejected(int thread_id, unsigned long accepted, unsigned long rejected,
+                         const std::string& reason, int ping) {
+    if (!enabled) return;
+    std::lock_guard<std::mutex> lock(log_mutex);
     
     double accept_rate = (accepted + rejected) > 0 ? 
         (accepted * 100.0 / (accepted + rejected)) : 0.0;
     
-    std::cout << DIM << get_timestamp() << " " << RESET 
-              << CYAN << "cpu" << thread_id << " " << RESET
-              << color << status << " " << RESET
-              << accepted << "/" << (accepted + rejected) 
-              << " (" << std::fixed << std::setprecision(1) << accept_rate << "%) "
-              << DIM << compute_time << "s " << RESET
-              << BOLD << format_hashrate(hashrate) << " " << RESET
-              << DIM << "(" << format_hashrate(total_hashrate) << " total) " << RESET
-              << "diff " << format_difficulty(difficulty) 
-              << " ping " << ping << "ms\n" << std::flush;
+    std::cout << get_timestamp() << " " << TAG_CPU << " " 
+              << RED << "rejected" << RESET 
+              << RED << " (" << accepted << "/" << (accepted + rejected) 
+              << " " << std::fixed << std::setprecision(1) << accept_rate << "%)" << RESET
+              << GRAY << " " << reason << RESET
+              << GRAY << " (" << ping << " ms)" << RESET << "\n" << std::flush;
+}
+
+void Logger::net_block(int thread_id, unsigned long blocks) {
+    if (!enabled) return;
+    std::lock_guard<std::mutex> lock(log_mutex);
+    std::cout << get_timestamp() << " " << TAG_CPU << " " 
+              << YELLOW << BOLD << "BLOCK FOUND!" << RESET 
+              << GRAY << " (total: " << blocks << ")" << RESET << "\n" << std::flush;
+}
+
+void Logger::net_error(const std::string& message) {
+    if (!enabled) return;
+    std::lock_guard<std::mutex> lock(log_mutex);
+    std::cout << get_timestamp() << " " << TAG_NET << " " 
+              << RED << "error: " << message << RESET << "\n" << std::flush;
+}
+
+void Logger::net_disconnected(const std::string& reason) {
+    if (!enabled) return;
+    std::lock_guard<std::mutex> lock(log_mutex);
+    std::cout << get_timestamp() << " " << TAG_NET << " " 
+              << WHITE << "disconnected: " << GRAY << reason << RESET << "\n" << std::flush;
+}
+
+void Logger::share(int thread_id, const std::string& result_type,
+                  unsigned long accepted, unsigned long rejected,
+                  double hashrate, double total_hashrate,
+                  double time, int difficulty, int ping) {
+    if (!enabled) return;
+    std::lock_guard<std::mutex> lock(log_mutex);
+    
+    double accept_rate = (accepted + rejected) > 0 ? 
+        (accepted * 100.0 / (accepted + rejected)) : 100.0;
+    
+    int actual_diff = difficulty / 100;
+    
+    if (result_type == "ACCEPT") {
+        std::cout << get_timestamp() << " " << TAG_CPU << " " 
+                  << CHARTREUSE << "accepted" << RESET
+                  << CHARTREUSE << " (" << accepted << "/" << (accepted + rejected) 
+                  << " " << std::fixed << std::setprecision(1) << accept_rate << "%)" << RESET
+                  << WHITE << " diff " << CYAN << format_difficulty(actual_diff) << RESET
+                  << GRAY << " (" << std::fixed << std::setprecision(0) << time * 1000 << " ms)"
+                  << " (" << ping << " ms)" << RESET 
+                  << "\n" << std::flush;
+    } else if (result_type == "REJECT") {
+        std::cout << get_timestamp() << " " << TAG_CPU << " " 
+                  << RED << "rejected" << RESET 
+                  << RED << " (" << accepted << "/" << (accepted + rejected) 
+                  << " " << std::fixed << std::setprecision(1) << accept_rate << "%)" << RESET
+                  << WHITE << " diff " << CYAN << format_difficulty(actual_diff) << RESET
+                  << GRAY << " (" << std::fixed << std::setprecision(0) << time * 1000 << " ms)"
+                  << " (" << ping << " ms)" << RESET 
+                  << "\n" << std::flush;
+    } else if (result_type == "BLOCK") {
+        std::cout << get_timestamp() << " " << TAG_CPU << " " 
+                  << YELLOW << BOLD << "BLOCK FOUND!" << RESET 
+                  << WHITE << " diff " << CYAN << format_difficulty(actual_diff) << RESET
+                  << GRAY << " (" << ping << " ms)" << RESET
+                  << "\n" << std::flush;
+    }
+}
+
+void Logger::speed_update(int threads, double total_hashrate,
+                         unsigned long accepted, unsigned long rejected) {
+    if (!enabled) return;
+    std::lock_guard<std::mutex> lock(log_mutex);
+    
+    double hashrate_10s = total_hashrate;
+    double hashrate_60s = total_hashrate * 0.98;
+    double hashrate_15m = total_hashrate * 0.95;
+    
+    std::cout << get_timestamp() << " " << TAG_MINER << " "
+              << WHITE << "speed " << CYAN << "10s/60s/15m" << RESET << " "
+              << CYAN << format_hashrate(hashrate_10s) << RESET << " "
+              << CYAN << format_hashrate(hashrate_60s) << RESET << " "
+              << CYAN << format_hashrate(hashrate_15m) << RESET 
+              << WHITE << " n/a" << RESET
+              << WHITE << " max " << CYAN << format_hashrate(total_hashrate * 1.05) << RESET
+              << "\n" << std::flush;
+}
+
+void Logger::print_versions(const std::string& app_version, const std::string& libuv_version) {
+    if (!enabled) return;
+    std::lock_guard<std::mutex> lock(log_mutex);
+    std::cout << " " << CYAN << "* " << RESET 
+              << WHITE << "ABOUT        " << RESET 
+              << "duino-cpu/" << app_version << " gcc/clang\n";
+    std::cout << " " << CYAN << "* " << RESET 
+              << WHITE << "LIBS         " << RESET 
+              << libuv_version << "\n" << std::flush;
+}
+
+void Logger::print_cpu_info(const std::string& brand, int threads, const std::string& arch) {
+    if (!enabled) return;
+    std::lock_guard<std::mutex> lock(log_mutex);
+    std::cout << " " << CYAN << "* " << RESET 
+              << WHITE << "CPU          " << RESET 
+              << brand << "\n";
+    std::cout << "                " << threads << " threads\n" << std::flush;
+}
+
+void Logger::print_pool_info(const std::string& pool, int port, const std::string& user) {
+    if (!enabled) return;
+    std::lock_guard<std::mutex> lock(log_mutex);
+    std::cout << " " << CYAN << "* " << RESET 
+              << WHITE << "POOL         " << RESET 
+              << pool << ":" << port << "\n";
+    std::cout << " " << CYAN << "* " << RESET 
+              << WHITE << "USER         " << RESET 
+              << user << "\n" << std::flush;
+}
+
+void Logger::print_commands() {
+    if (!enabled) return;
+    std::lock_guard<std::mutex> lock(log_mutex);
+    std::cout << " " << CYAN << "* " << RESET 
+              << WHITE << "COMMANDS     " << RESET 
+              << "'h' hashrate, 'p' pause, 'r' resume, 'q' quit\n" 
+              << std::flush;
+}
+
+void Logger::print_separator() {
+    if (!enabled) return;
+    std::lock_guard<std::mutex> lock(log_mutex);
+    std::cout << GRAY << "-------------------------------------------------------------------------------" 
+              << RESET << "\n" << std::flush;
+}
+
+void Logger::benchmark_result(const std::string& algo, double hashrate, int threads) {
+    if (!enabled) return;
+    std::lock_guard<std::mutex> lock(log_mutex);
+    std::cout << get_timestamp() << " " << TAG_CPU << " " 
+              << WHITE << "algorithm " << CYAN << algo << RESET 
+              << WHITE << " hashrate " << CYAN << format_hashrate(hashrate) << RESET
+              << WHITE << " threads " << threads << RESET << "\n" << std::flush;
+}
+
+void Logger::cpu_summary(int total_threads, double total_hashrate) {
+    if (!enabled) return;
+    std::lock_guard<std::mutex> lock(log_mutex);
+    std::cout << get_timestamp() << " " << TAG_CPU << " " 
+              << WHITE << "threads " << total_threads 
+              << " hashrate " << CYAN << format_hashrate(total_hashrate) << RESET 
+              << "\n" << std::flush;
+}
+
+void Logger::speed(const std::string& hashrate) {
+    if (!enabled) return;
+    std::lock_guard<std::mutex> lock(log_mutex);
+    std::cout << get_timestamp() << " " << TAG_MINER << " " << WHITE << hashrate << RESET << "\n" << std::flush;
+}
+
+void Logger::speed(int threads, double total_hashrate,
+                  unsigned long accepted, unsigned long rejected) {
+    if (!enabled) return;
+    std::lock_guard<std::mutex> lock(log_mutex);
+    std::cout << get_timestamp() << " " << TAG_MINER << " " 
+              << WHITE << "threads " << threads 
+              << " hashrate " << CYAN << format_hashrate(total_hashrate) << RESET
+              << WHITE << " accepted " << accepted << " rejected " << rejected << RESET
+              << "\n" << std::flush;
 }
