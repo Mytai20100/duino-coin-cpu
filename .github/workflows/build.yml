@@ -11,20 +11,25 @@ jobs:
 
     strategy:
       matrix:
-        include:
-          - arch: x86_64
-            container: messense/musl-cross:x86_64-musl
-            binary: duino-cpu-linux-x86_64
-          - arch: aarch64
-            container: messense/musl-cross:aarch64-musl
-            binary: duino-cpu-linux-aarch64
-
-    container:
-      image: ${{ matrix.container }}
+        arch: [amd64, arm64]
 
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+
+      - name: Set up QEMU (for arm64)
+        if: matrix.arch == 'arm64'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            build-essential \
+            cmake \
+            libssl-dev \
+            libcurl4-openssl-dev \
+            libjsoncpp-dev
 
       - name: Extract version from ChangeLog
         id: version
@@ -32,23 +37,18 @@ jobs:
           VERSION=$(grep -oP '\[Version\s+\K[^\]]+' ChangeLog | tail -n 1)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Configure & build (static musl)
+      - name: Build
         run: |
           rm -rf build
-          mkdir build
+          mkdir -p build
           cd build
-
-          cmake .. \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_SHARED_LIBS=OFF \
-            -DCMAKE_EXE_LINKER_FLAGS="-static"
-
+          cmake -DCMAKE_BUILD_TYPE=Release ..
           make -j$(nproc)
 
       - name: Prepare artifact
         run: |
           mkdir -p release
-          cp build/duino-cpu release/${{ matrix.binary }}
+          cp build/duino-cpu release/duino-cpu-linux-${{ matrix.arch }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
