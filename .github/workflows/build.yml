@@ -13,10 +13,10 @@ jobs:
       matrix:
         include:
           - arch: x86_64
-            container: muslcc/x86_64
+            container: messense/musl-cross:x86_64-musl
             binary: duino-cpu-linux-x86_64
           - arch: aarch64
-            container: muslcc/aarch64
+            container: messense/musl-cross:aarch64-musl
             binary: duino-cpu-linux-aarch64
 
     container:
