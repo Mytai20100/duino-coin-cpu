@@ -94,8 +94,8 @@ duino-cpu
 
 ## Demo
 
-![Demo 1](https://github.com/Mytai20100/duino-coin-cpu/raw/main/demo1.png)
-![Demo 2](https://github.com/Mytai20100/duino-coin-cpu/raw/main/demo2.png)
+![Demo 1](https://raw.githubusercontent.com/Mytai20100/duino-coin-cpu/refs/heads/main/img/demo1.png)
+![Demo 2](https://raw.githubusercontent.com/Mytai20100/duino-coin-cpu/refs/heads/main/img/demo2.png)
 
 ---
 
