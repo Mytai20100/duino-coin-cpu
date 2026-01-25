@@ -311,14 +311,41 @@ void Logger::print_separator() {
     std::cout << GRAY << "-------------------------------------------------------------------------------" 
               << RESET << "\n" << std::flush;
 }
-
-void Logger::benchmark_result(const std::string& algo, double hashrate, int threads) {
+void Logger::benchmark_start(int threads) {
     if (!enabled) return;
     std::lock_guard<std::mutex> lock(log_mutex);
-    std::cout << get_timestamp() << " " << TAG_CPU << " " 
-              << WHITE << "algorithm " << CYAN << algo << RESET 
-              << WHITE << " hashrate " << CYAN << format_hashrate(hashrate) << RESET
-              << WHITE << " threads " << threads << RESET << "\n" << std::flush;
+    std::cout << get_timestamp() << " " << TAG_CPU << " "
+              << WHITE << "starting benchmark with " << CYAN << threads 
+              << WHITE << " threads" << RESET << "\n";
+    std::cout << get_timestamp() << " " << TAG_CPU << " "
+              << WHITE << "running for " << CYAN << "30 seconds" << RESET 
+              << WHITE << "..." << RESET << "\n" << std::flush;
+}
+
+void Logger::benchmark_result(unsigned long total_hashes, double duration,
+                             double total_hashrate, double per_thread) {
+    if (!enabled) return;
+    std::lock_guard<std::mutex> lock(log_mutex);
+    
+    std::cout << get_timestamp() << " " << TAG_CPU << " "
+              << BRIGHT_GREEN << "benchmark complete!" << RESET << "\n";
+    
+    std::cout << get_timestamp() << " " << TAG_CPU << " "
+              << WHITE << "total hashes   " << CYAN 
+              << total_hashes << RESET << "\n";
+    
+    std::cout << get_timestamp() << " " << TAG_CPU << " "
+              << WHITE << "duration       " << CYAN 
+              << std::fixed << std::setprecision(1) << duration 
+              << WHITE << " seconds" << RESET << "\n";
+    
+    std::cout << get_timestamp() << " " << TAG_CPU << " "
+              << WHITE << "hashrate       " << CYAN 
+              << format_hashrate(total_hashrate) << RESET << "\n";
+    
+    std::cout << get_timestamp() << " " << TAG_CPU << " "
+              << WHITE << "per thread     " << CYAN 
+              << format_hashrate(per_thread) << RESET << "\n" << std::flush;
 }
 
 void Logger::cpu_summary(int total_threads, double total_hashrate) {

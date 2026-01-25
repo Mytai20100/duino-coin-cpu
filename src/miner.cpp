@@ -150,8 +150,9 @@ bool Miner::submit_share(SocketClient& client, unsigned long result,
                         double hashrate, int thread_id, int difficulty, 
                         double compute_time, int ping) {
     static thread_local char send_buffer[512];
+    // CHỈ SỬA DÒNG NÀY - Đổi "PC" thành "" để có 2 dấu phẩy liên tiếp
     int len = snprintf(send_buffer, sizeof(send_buffer),
-                      "%lu,%.2f,Official CPU Miner %s,%s,PC,%s",
+                      "%lu,%.2f,Official PC Miner %s,%s,,%s",
                       result, hashrate, VERSION,
                       config.rig_identifier.c_str(),
                       config.miner_id.c_str());

@@ -54,7 +54,9 @@ public:
     static void print_header();
     
     // Benchmark
-    static void benchmark_result(const std::string& algo, double hashrate, int threads);
+    static void benchmark_start(int threads);
+    static void benchmark_result(unsigned long total_hashes, double duration, 
+                                double total_hashrate, double per_thread);
     
     // CPU summary
     static void cpu_summary(int total_threads, double total_hashrate);

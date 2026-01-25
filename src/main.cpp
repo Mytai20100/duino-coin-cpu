@@ -1,3 +1,8 @@
+// Duino-Coin Official PC Miner 4.3 © MIT licensed
+// https://duinocoin.com
+// https://github.com/revoxhere/duino-coin
+// Duino-Coin Team & Community 2019-2026
+// Version 0.3beta 
 #include "../include/config.h"
 #include "../include/logger.h"
 #include "../include/miner.h"
