@@ -1,26 +1,20 @@
 name: build
-
 on:
   push:
     branches: [ "main" ]
   workflow_dispatch:
-
 jobs:
   build:
     runs-on: ubuntu-latest
-
     strategy:
       matrix:
         arch: [amd64, arm64]
-
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
-
       - name: Set up QEMU (for arm64)
         if: matrix.arch == 'arm64'
         uses: docker/setup-qemu-action@v3
-
       - name: Install dependencies
         run: |
           sudo apt update
@@ -30,31 +24,32 @@ jobs:
             libssl-dev \
             libcurl4-openssl-dev \
             libjsoncpp-dev
-
       - name: Extract version from ChangeLog
         id: version
         run: |
           VERSION=$(grep -oP '\[Version\s+\K[^\]]+' ChangeLog | tail -n 1)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-
       - name: Build
         run: |
           rm -rf build
           mkdir -p build
           cd build
-          cmake -DCMAKE_BUILD_TYPE=Release ..
+          cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++" ..
           make -j$(nproc)
-
+          strip duino-cpu
       - name: Prepare artifact
         run: |
-          mkdir -p release
-          cp build/duino-cpu release/duino-cpu-linux-${{ matrix.arch }}
-
+          mkdir -p release/duino-cpu
+          cp build/duino-cpu release/duino-cpu/
+          chmod +x release/duino-cpu/duino-cpu
+          cd release
+          tar -czf duino-cpu-linux-${{ matrix.arch }}.tar.gz duino-cpu
+          rm -rf duino-cpu
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version }}
           name: v${{ steps.version.outputs.version }}
-          files: release/*
+          files: release/*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
