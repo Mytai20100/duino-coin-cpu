@@ -7,24 +7,36 @@
 #if defined(__x86_64__) || defined(_M_X64)
 #include <cpuid.h>
 
-static bool has_avx2() {
+static bool check_avx2_support() {
     unsigned int eax, ebx, ecx, edx;
-    if (__get_cpuid(7, &eax, &ebx, &ecx, &edx)) {
+    if (__get_cpuid_count(7, 0, &eax, &ebx, &ecx, &edx)) {
         return (ebx & (1 << 5)) != 0;
     }
     return false;
 }
 
-static bool has_avx512() {
+static bool check_avx512_support() {
     unsigned int eax, ebx, ecx, edx;
-    if (__get_cpuid(7, &eax, &ebx, &ecx, &edx)) {
+    if (__get_cpuid_count(7, 0, &eax, &ebx, &ecx, &edx)) {
         return (ebx & (1 << 16)) != 0;
     }
     return false;
 }
+
+static bool check_neon_support() { return false; }
+
+#elif defined(__aarch64__) || defined(_M_ARM64)
+
+static bool check_neon_support() { return true; }
+static bool check_avx2_support() { return false; }
+static bool check_avx512_support() { return false; }
+
 #else
-static bool has_avx2() { return false; }
-static bool has_avx512() { return false; }
+
+static bool check_avx2_support() { return false; }
+static bool check_avx512_support() { return false; }
+static bool check_neon_support() { return false; }
+
 #endif
 
 void Hasher::ducos1_hash(const std::string& input, uint8_t output[20]) {
@@ -34,52 +46,84 @@ void Hasher::ducos1_hash(const std::string& input, uint8_t output[20]) {
 
 #if defined(USE_AVX2)
 bool Hasher::ducos1_compare_avx2(const uint8_t hash1[20], const uint8_t hash2[20]) {
-    __m256i a = _mm256_loadu_si256((__m256i*)hash1);
-    __m256i b = _mm256_loadu_si256((__m256i*)hash2);
+    alignas(32) uint8_t a_buf[32] = {0};
+    alignas(32) uint8_t b_buf[32] = {0};
+    memcpy(a_buf, hash1, 20);
+    memcpy(b_buf, hash2, 20);
+    
+    __m256i a = _mm256_load_si256((__m256i*)a_buf);
+    __m256i b = _mm256_load_si256((__m256i*)b_buf);
     __m256i cmp = _mm256_cmpeq_epi8(a, b);
     int mask = _mm256_movemask_epi8(cmp);
+    
     return (mask & 0xFFFFF) == 0xFFFFF;
 }
 #endif
 
 #if defined(USE_AVX512)
 bool Hasher::ducos1_compare_avx512(const uint8_t hash1[20], const uint8_t hash2[20]) {
-    __m512i a = _mm512_loadu_si512((__m512i*)hash1);
-    __m512i b = _mm512_loadu_si512((__m512i*)hash2);
+    alignas(64) uint8_t a_buf[64] = {0};
+    alignas(64) uint8_t b_buf[64] = {0};
+    memcpy(a_buf, hash1, 20);
+    memcpy(b_buf, hash2, 20);
+    
+    __m512i a = _mm512_load_si512((__m512i*)a_buf);
+    __m512i b = _mm512_load_si512((__m512i*)b_buf);
     __mmask64 mask = _mm512_cmpeq_epi8_mask(a, b);
+    
     return (mask & 0xFFFFF) == 0xFFFFF;
 }
 #endif
 
-bool Hasher::ducos1_compare(const uint8_t hash1[20], const uint8_t hash2[20]) {
-    // Runtime check - chỉ dùng nếu cả compile-time VÀ runtime đều support
-    static bool checked = false;
-    static bool use_avx512 = false;
-    static bool use_avx2 = false;
+#if defined(USE_ARM_NEON)
+bool Hasher::ducos1_compare_neon(const uint8_t hash1[20], const uint8_t hash2[20]) {
+    uint8x16_t a = vld1q_u8(hash1);
+    uint8x16_t b = vld1q_u8(hash2);
+    uint8x16_t cmp = vceqq_u8(a, b);
     
-    if (!checked) {
-#if defined(USE_AVX512)
-        use_avx512 = has_avx512();
+    uint64x2_t cmp64 = vreinterpretq_u64_u8(cmp);
+    uint64_t low = vgetq_lane_u64(cmp64, 0);
+    uint64_t high = vgetq_lane_u64(cmp64, 1);
+    
+    if (low != 0xFFFFFFFFFFFFFFFFULL || high != 0xFFFFFFFFFFFFFFFFULL) {
+        return false;
+    }
+    
+    return memcmp(hash1 + 16, hash2 + 16, 4) == 0;
+}
 #endif
-#if defined(USE_AVX2)
-        use_avx2 = has_avx2();
-#endif
-        checked = true;
+
+bool Hasher::ducos1_compare(const uint8_t hash1[20], const uint8_t hash2[20]) {
+    static bool detection_done = false;
+    static bool cpu_has_avx512 = false;
+    static bool cpu_has_avx2 = false;
+    static bool cpu_has_neon = false;
+    
+    if (!detection_done) {
+        cpu_has_avx512 = check_avx512_support();
+        cpu_has_avx2 = check_avx2_support();
+        cpu_has_neon = check_neon_support();
+        detection_done = true;
     }
     
 #if defined(USE_AVX512)
-    if (use_avx512) {
+    if (cpu_has_avx512) {
         return ducos1_compare_avx512(hash1, hash2);
     }
 #endif
 
 #if defined(USE_AVX2)
-    if (use_avx2) {
+    if (cpu_has_avx2) {
         return ducos1_compare_avx2(hash1, hash2);
     }
 #endif
+
+#if defined(USE_ARM_NEON)
+    if (cpu_has_neon) {
+        return ducos1_compare_neon(hash1, hash2);
+    }
+#endif
     
-    // Fallback to memcmp
     return memcmp(hash1, hash2, 20) == 0;
 }
 

@@ -278,15 +278,15 @@ void Miner::mining_thread(int thread_id) {
             OptimizedHasher::hash_with_nonce(last_hash_cstr, last_hash_len, 
                                             nonce, hash_output);
             hashes_done++;
-            
-#if defined(USE_AVX2)
-            bool match = Hasher::ducos1_compare_avx2(hash_output, expected_bytes);
-#elif defined(USE_AVX512)
-            bool match = Hasher::ducos1_compare_avx512(hash_output, expected_bytes);
-#else
-            bool match = (memcmp(hash_output, expected_bytes, 20) == 0);
-#endif
-            
+// Some cpu not work            
+// #if defined(USE_AVX2)
+//             bool match = Hasher::ducos1_compare_avx2(hash_output, expected_bytes);
+// #elif defined(USE_AVX512)
+//             bool match = Hasher::ducos1_compare_avx512(hash_output, expected_bytes);
+// #else
+//             bool match = (memcmp(hash_output, expected_bytes, 20) == 0);
+// #endif
+            bool match = Hasher::ducos1_compare(hash_output, expected_bytes);
             if (match) {
                 auto end_time = std::chrono::high_resolution_clock::now();
                 auto duration = std::chrono::duration_cast<std::chrono::microseconds>(

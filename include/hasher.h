@@ -5,8 +5,14 @@
 #include <cstdint>
 #include <cstring>
 
+// x86 SIMD
 #if defined(USE_AVX512) || defined(USE_AVX2)
 #include <immintrin.h>
+#endif
+
+// ARM NEON
+#if defined(USE_ARM_NEON)
+#include <arm_neon.h>
 #endif
 
 class Hasher {
@@ -22,6 +28,10 @@ public:
 
 #if defined(USE_AVX512)
     static bool ducos1_compare_avx512(const uint8_t hash1[20], const uint8_t hash2[20]);
+#endif
+
+#if defined(USE_ARM_NEON)
+    static bool ducos1_compare_neon(const uint8_t hash1[20], const uint8_t hash2[20]);
 #endif
 };
 

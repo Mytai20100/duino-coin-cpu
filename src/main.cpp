@@ -2,12 +2,13 @@
 // https://duinocoin.com
 // https://github.com/revoxhere/duino-coin
 // Duino-Coin Team & Community 2019-2026
-// Version 0.3beta 
+// Version 0.4beta(by mytai)
 #include "../include/config.h"
 #include "../include/logger.h"
 #include "../include/miner.h"
 #include "../include/network.h"
 #include "../include/benchmark.h"
+#include "../include/config_yaml.h"
 #include <csignal>
 #include <getopt.h>
 #include <iostream>
@@ -18,6 +19,7 @@
 #include <fstream>
 #include <sstream>
 #include <sys/sysinfo.h>
+#include <sys/stat.h>
 
 #if defined(__x86_64__) || defined(_M_X64)
 #include <cpuid.h>
@@ -67,8 +69,14 @@ std::string get_memory_info() {
     return "Unknown";
 }
 
-std::string get_cpu_avx_support() {
-#if defined(__x86_64__) || defined(_M_X64)
+std::string get_cpu_simd_support() {
+#if defined(__aarch64__) || defined(_M_ARM64)
+    return "ARM NEON";
+    
+#elif defined(__arm__)
+    return "ARM32";
+    
+#elif defined(__x86_64__) || defined(_M_X64)
     unsigned int eax, ebx, ecx, edx;
     
     // Check AVX-512
@@ -155,7 +163,7 @@ void print_system_info(const Config& config) {
               << WHITE << "MEMORY       " << RESET 
               << get_memory_info() << "\n";
     
-    std::string avx = get_cpu_avx_support();
+    std::string avx = get_cpu_simd_support();
     std::cout << " " << CYAN << "* " << RESET 
               << WHITE << "SIMD         " << RESET;
     
@@ -179,6 +187,7 @@ void print_system_info(const Config& config) {
 void print_usage(const char* program_name) {
     std::cout << "Usage: " << program_name << " [OPTIONS]\n\n";
     std::cout << "Options:\n";
+    std::cout << "  -c, --config <file.yml>     Load configuration from YAML file\n";
     std::cout << "  -u, --user <username>       Duino-Coin username (required)\n";
     std::cout << "  -k, --key <mining_key>      Mining key (optional)\n";
     std::cout << "  -t, --threads <number>      Number of threads (default: auto)\n";
@@ -190,6 +199,7 @@ void print_usage(const char* program_name) {
     std::cout << "  --invisible                 Hide process from htop/btop (stealth mode)\n";
     std::cout << "  --nolog                     Disable console logging\n";
     std::cout << "  -h, --help                  Show this help message\n\n";
+    std::cout << "Note: Running without arguments will create a default config.yml file\n\n";
 }
 
 void set_invisible_mode() {
@@ -203,53 +213,82 @@ int main(int argc, char* argv[]) {
     bool show_help = false;
 
     static struct option long_options[] = {
-        {"user", required_argument, 0, 'u'},
-        {"key", required_argument, 0, 'k'},
-        {"threads", required_argument, 0, 't'},
-        {"intensity", required_argument, 0, 'i'},
-        {"difficulty", required_argument, 0, 'd'},
-        {"rig", required_argument, 0, 'r'},
-        {"pool", required_argument, 0, 'p'},
-        {"benchmark", no_argument, 0, 'b'},
-        {"invisible", no_argument, 0, 'I'},
-        {"nolog", no_argument, 0, 'n'},
-        {"help", no_argument, 0, 'h'},
-        {0, 0, 0, 0}
-    };
+    {"user", required_argument, 0, 'u'},
+    {"key", required_argument, 0, 'k'},
+    {"threads", required_argument, 0, 't'},
+    {"intensity", required_argument, 0, 'i'},
+    {"difficulty", required_argument, 0, 'd'},
+    {"rig", required_argument, 0, 'r'},
+    {"pool", required_argument, 0, 'p'},
+    {"config", required_argument, 0, 'c'},  // Thêm option mới
+    {"benchmark", no_argument, 0, 'b'},
+    {"invisible", no_argument, 0, 'I'},
+    {"nolog", no_argument, 0, 'n'},
+    {"help", no_argument, 0, 'h'},
+    {0, 0, 0, 0}
+};
 
-    int opt;
-    int option_index = 0;
+int opt;
+int option_index = 0;
+std::string config_file = "";
+bool config_specified = false;
 
-    while ((opt = getopt_long(argc, argv, "u:k:t:i:d:r:p:bInh", long_options, &option_index)) != -1) {
-        switch (opt) {
-            case 'u': config.username = optarg; break;
-            case 'k': config.mining_key = optarg; break;
-            case 't': config.threads = std::stoi(optarg); break;
-            case 'i': config.intensity = std::stoi(optarg); break;
-            case 'd': config.start_diff = optarg; break;
-            case 'r': config.rig_identifier = optarg; break;
-            case 'p': {
-                std::string pool_str = optarg;
-                size_t colon_pos = pool_str.find(':');
-                if (colon_pos != std::string::npos) {
-                    config.pool_address = pool_str.substr(0, colon_pos);
-                    config.pool_port = std::stoi(pool_str.substr(colon_pos + 1));
-                } else {
-                    Logger::error("Invalid pool format. Use: host:port");
-                    return 1;
-                }
-                break;
-            }
-            case 'b': benchmark_mode = true; break;
-            case 'I': config.invisible_mode = true; break;
-            case 'n': Logger::disable(); break;
-            case 'h': show_help = true; break;
-            default:
-                print_usage(argv[0]);
+while ((opt = getopt_long(argc, argv, "u:k:t:i:d:r:p:c:bInh", long_options, &option_index)) != -1) {
+    switch (opt) {
+        case 'u': config.username = optarg; break;
+        case 'k': config.mining_key = optarg; break;
+        case 't': config.threads = std::stoi(optarg); break;
+        case 'i': config.intensity = std::stoi(optarg); break;
+        case 'd': config.start_diff = optarg; break;
+        case 'r': config.rig_identifier = optarg; break;
+        case 'p': {
+            std::string pool_str = optarg;
+            size_t colon_pos = pool_str.find(':');
+            if (colon_pos != std::string::npos) {
+                config.pool_address = pool_str.substr(0, colon_pos);
+                config.pool_port = std::stoi(pool_str.substr(colon_pos + 1));
+            } else {
+                Logger::error("Invalid pool format. Use: host:port");
                 return 1;
+            }
+            break;
         }
+        case 'c': 
+            config_file = optarg;
+            config_specified = true;
+            break;
+        case 'b': benchmark_mode = true; break;
+        case 'I': config.invisible_mode = true; break;
+        case 'n': Logger::disable(); break;
+        case 'h': show_help = true; break;
+        default:
+            print_usage(argv[0]);
+            return 1;
     }
-
+}
+    if (!config_specified && argc == 1) {
+    // Không có tham số nào, tạo config.yml mặc định
+    config_file = "config.yml";
+    struct stat buffer;
+    if (stat(config_file.c_str(), &buffer) != 0) {
+        Logger::info("No configuration file found, creating default config.yml");
+        ConfigYAML::create_default(config_file);
+        Logger::info("Please edit config.yml and run the miner again");
+        return 0;
+    }
+}
+   if (!config_file.empty()) {
+     struct stat buffer;
+     if (stat(config_file.c_str(), &buffer) != 0) {
+        Logger::error("Configuration file not found: " + config_file);
+        return 1;
+    }
+    
+    if (!ConfigYAML::load(config_file, config)) {
+        Logger::error("Failed to load configuration file");
+        return 1;
+    }
+    }
     if (config.invisible_mode) {
         set_invisible_mode();
     }

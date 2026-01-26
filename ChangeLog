@@ -1,3 +1,4 @@
 1/7/2026[Version 0.1beta] fork and update somethings
 1/24/2026[Version 0.2beta] Update Gui cli and somethings ._.
 1/24/2026[Version 0.3beta] Fix dupe threads 
+1/26/2026[Version 0.4beta] Fix more bug: core dump in some cpu.Update to 0.4beta add read config.yml ,support arm64/arm32
