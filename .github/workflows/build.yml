@@ -18,12 +18,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y \
-            build-essential \
-            cmake \
-            libssl-dev \
-            libcurl4-openssl-dev \
-            libjsoncpp-dev
+          sudo bash i.sh
       - name: Extract version from ChangeLog
         id: version
         run: |
