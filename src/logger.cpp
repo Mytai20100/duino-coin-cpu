@@ -30,7 +30,7 @@ static std::mutex log_mutex;
 #define BRIGHT_GREEN  "\033[92m"
 #define BRIGHT_BLUE   "\033[94m"
 #define BRIGHT_MAGENTA "\033[95m"
-#define CHARTREUSE    "\033[38;2;127;255;0m"  // Màu #7FFF00
+#define CHARTREUSE    "\033[38;2;127;255;0m"  
 
 // Text styles
 #define BOLD          "\033[1m"
@@ -44,10 +44,9 @@ static std::mutex log_mutex;
 #define BG_RED        "\033[41m"
 #define BG_YELLOW     "\033[43m"
 
-// XMRig-style colored tags - với màu sắc chính xác
-#define TAG_NET       BG_BLUE WHITE "  net   " RESET           // Xanh dương đậm
-#define TAG_CPU       BG_CYAN BLACK "  cpu   " RESET           // Xanh cyan
-#define TAG_MINER     BG_MAGENTA WHITE " miner  " RESET        // Tím
+#define TAG_NET       BG_BLUE WHITE "  net   " RESET           
+#define TAG_CPU       BG_CYAN BLACK "  cpu   " RESET         
+#define TAG_MINER     BG_MAGENTA WHITE " miner  " RESET       
 
 static std::string get_timestamp() {
     auto now = std::chrono::system_clock::now();
@@ -311,6 +310,7 @@ void Logger::print_separator() {
     std::cout << GRAY << "-------------------------------------------------------------------------------" 
               << RESET << "\n" << std::flush;
 }
+
 void Logger::benchmark_start(int threads) {
     if (!enabled) return;
     std::lock_guard<std::mutex> lock(log_mutex);
@@ -372,4 +372,72 @@ void Logger::speed(int threads, double total_hashrate,
               << " hashrate " << CYAN << format_hashrate(total_hashrate) << RESET
               << WHITE << " accepted " << accepted << " rejected " << rejected << RESET
               << "\n" << std::flush;
+}
+
+void Logger::print_stats(unsigned long accepted, unsigned long rejected,
+                        double total_hashrate, int threads,
+                        unsigned long uptime_seconds,
+                        const std::string& pool_address, int pool_port,
+                        unsigned long blocks) {
+    if (!enabled) return;
+    std::lock_guard<std::mutex> lock(log_mutex);
+    
+    // Calculate stats
+    double accept_rate = (accepted + rejected) > 0 ? 
+        (accepted * 100.0 / (accepted + rejected)) : 100.0;
+    
+    // Format uptime
+    auto format_uptime = [](unsigned long seconds) -> std::string {
+        unsigned long days = seconds / 86400;
+        seconds %= 86400;
+        unsigned long hours = seconds / 3600;
+        seconds %= 3600;
+        unsigned long minutes = seconds / 60;
+        seconds %= 60;
+        
+        std::stringstream ss;
+        if (days > 0) {
+            ss << days << "d " << hours << "h " << minutes << "m " << seconds << "s";
+        } else if (hours > 0) {
+            ss << hours << "h " << minutes << "m " << seconds << "s";
+        } else if (minutes > 0) {
+            ss << minutes << "m " << seconds << "s";
+        } else {
+            ss << seconds << "s";
+        }
+        return ss.str();
+    };
+    
+    std::cout << "\n";
+    std::cout << CYAN << "=========================================" << RESET << "\n\n";
+    
+    // Uptime
+    std::cout << "  " << WHITE << BOLD << "Uptime:          " << RESET 
+              << CYAN << format_uptime(uptime_seconds) << RESET << "\n";
+    
+    // Hashrate
+    std::cout << "  " << WHITE << BOLD << "Hashrate:        " << RESET 
+              << CHARTREUSE << format_hashrate(total_hashrate) << RESET 
+              << GRAY << " (" << threads << " threads)" << RESET << "\n";
+    
+    // Shares
+    std::cout << "  " << WHITE << BOLD << "Shares:          " << RESET;
+    std::cout << CHARTREUSE << accepted << RESET << GRAY << " accepted" << RESET;
+    std::cout << GRAY << " / " << RESET;
+    std::cout << RED << rejected << RESET << GRAY << " rejected" << RESET;
+    std::cout << GRAY << " (" << std::fixed << std::setprecision(1) 
+              << accept_rate << "%)" << RESET << "\n";
+    
+    // Blocks
+    if (blocks > 0) {
+        std::cout << "  " << WHITE << BOLD << "Blocks Found:    " << RESET 
+                  << YELLOW << BOLD << blocks << RESET << "\n";
+    }
+    
+    // Pool
+    std::cout << "  " << WHITE << BOLD << "Pool:            " << RESET 
+              << CYAN << pool_address << ":" << pool_port << RESET << "\n";
+    
+    std::cout << "\n" << CYAN << "=========================================" << RESET << "\n\n";
+    std::cout << std::flush;
 }

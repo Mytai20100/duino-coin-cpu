@@ -45,7 +45,6 @@ public:
     static std::string format_difficulty(int difficulty);
     static std::string get_colored_box(const std::string& type);
     
-    // XMRig-style info display
     static void print_versions(const std::string& app_version, const std::string& libuv_version);
     static void print_cpu_info(const std::string& brand, int threads, const std::string& arch);
     static void print_pool_info(const std::string& pool, int port, const std::string& user);
@@ -60,6 +59,13 @@ public:
     
     // CPU summary
     static void cpu_summary(int total_threads, double total_hashrate);
+    
+    // Stats display
+    static void print_stats(unsigned long accepted, unsigned long rejected,
+                           double total_hashrate, int threads,
+                           unsigned long uptime_seconds,
+                           const std::string& pool_address, int pool_port,
+                           unsigned long blocks);
 };
 
 #endif

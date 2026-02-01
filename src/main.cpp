@@ -20,6 +20,8 @@
 #include <sstream>
 #include <sys/sysinfo.h>
 #include <sys/stat.h>
+#include <termios.h>
+#include <fcntl.h>
 
 #if defined(__x86_64__) || defined(_M_X64)
 #include <cpuid.h>
@@ -34,6 +36,7 @@
 #define GRAY          "\033[90m"
 
 std::atomic<bool> running(true);
+std::atomic<bool> paused(false);
 
 void signal_handler(int signal) {
     if (signal == SIGINT || signal == SIGTERM) {
@@ -182,6 +185,9 @@ void print_system_info(const Config& config) {
     }
 
     std::cout << "\n";
+    std::cout << " " << CYAN << "* " << RESET 
+              << WHITE << "COMMANDS     " << RESET 
+              << "'s' stats, 'h' hashrate, 'p' pause, 'r' resume, 'q' quit\n\n";
 }
 
 void print_usage(const char* program_name) {
@@ -207,6 +213,32 @@ void set_invisible_mode() {
     int result __attribute__((unused)) = nice(19);
 }
 
+// Non-blocking keyboard input
+int kbhit() {
+    struct termios oldt, newt;
+    int ch;
+    int oldf;
+    
+    tcgetattr(STDIN_FILENO, &oldt);
+    newt = oldt;
+    newt.c_lflag &= ~(ICANON | ECHO);
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+    oldf = fcntl(STDIN_FILENO, F_GETFL, 0);
+    fcntl(STDIN_FILENO, F_SETFL, oldf | O_NONBLOCK);
+    
+    ch = getchar();
+    
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+    fcntl(STDIN_FILENO, F_SETFL, oldf);
+    
+    if(ch != EOF) {
+        ungetc(ch, stdin);
+        return 1;
+    }
+    
+    return 0;
+}
+
 int main(int argc, char* argv[]) {
     Config config;
     bool benchmark_mode = false;
@@ -220,7 +252,7 @@ int main(int argc, char* argv[]) {
     {"difficulty", required_argument, 0, 'd'},
     {"rig", required_argument, 0, 'r'},
     {"pool", required_argument, 0, 'p'},
-    {"config", required_argument, 0, 'c'},  // Thêm option mới
+    {"config", required_argument, 0, 'c'},  
     {"benchmark", no_argument, 0, 'b'},
     {"invisible", no_argument, 0, 'I'},
     {"nolog", no_argument, 0, 'n'},
@@ -267,7 +299,6 @@ while ((opt = getopt_long(argc, argv, "u:k:t:i:d:r:p:c:bInh", long_options, &opt
     }
 }
     if (!config_specified && argc == 1) {
-    // Không có tham số nào, tạo config.yml mặc định
     config_file = "config.yml";
     struct stat buffer;
     if (stat(config_file.c_str(), &buffer) != 0) {
@@ -340,7 +371,59 @@ while ((opt = getopt_long(argc, argv, "u:k:t:i:d:r:p:c:bInh", long_options, &opt
         return 1;
     }
 
+    auto start_time = std::chrono::steady_clock::now();
+    
     miner.start();
+
+    // Keyboard input thread
+    std::thread input_thread([&]() {
+        while (running) {
+            if (kbhit()) {
+                char c = getchar();
+                if (c == 's' || c == 'S') {
+                    auto now = std::chrono::steady_clock::now();
+                    auto uptime = std::chrono::duration_cast<std::chrono::seconds>(
+                        now - start_time).count();
+                    
+                    auto stats = miner.get_stats();
+                    PoolInfo pool = network.get_pool();
+                    
+                    Logger::print_stats(
+                        stats.accepted,
+                        stats.rejected,
+                        stats.total_hashrate,
+                        config.threads,
+                        uptime,
+                        pool.ip,
+                        pool.port,
+                        stats.blocks
+                    );
+                } else if (c == 'h' || c == 'H') {
+                    auto stats = miner.get_stats();
+                    Logger::speed_update(
+                        config.threads,
+                        stats.total_hashrate,
+                        stats.accepted,
+                        stats.rejected
+                    );
+                } else if (c == 'p' || c == 'P') {
+                    if (!paused) {
+                        paused = true;
+                        Logger::warning("Mining paused");
+                    }
+                } else if (c == 'r' || c == 'R') {
+                    if (paused) {
+                        paused = false;
+                        Logger::success("Mining resumed");
+                    }
+                } else if (c == 'q' || c == 'Q') {
+                    running = false;
+                    Logger::info("Quit command received");
+                }
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+    });
 
     while (running) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -348,6 +431,11 @@ while ((opt = getopt_long(argc, argv, "u:k:t:i:d:r:p:c:bInh", long_options, &opt
 
     Logger::info("Stopping miner gracefully");
     miner.stop();
+    
+    if (input_thread.joinable()) {
+        input_thread.join();
+    }
+    
     Logger::success("Miner stopped successfully");
     return 0;
 }

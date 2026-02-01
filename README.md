@@ -1,6 +1,6 @@
 # duino-coin-cpu
 
-![Version](https://img.shields.io/badge/version-0.2beta-orange)
+![Version](https://img.shields.io/badge/version-0.4-orange)
 ![Language](https://img.shields.io/badge/language-C%2B%2B-blue)
 ![Platform](https://img.shields.io/badge/platform-Linux-green)
 
@@ -12,27 +12,36 @@
 ├── CMakeLists.txt        # CMake configuration
 ├── b.sh                  # Build script
 ├── i.sh                  # Install dependencies
+├── ChangeLog             # Version history
 ├── LICENSE
+├── README.md
 ├── include/              # Header files
 │   ├── benchmark.h
 │   ├── config.h
+│   ├── config_yaml.h
 │   ├── hasher.h
 │   ├── http_client.h
 │   ├── json.h
 │   ├── logger.h
 │   ├── miner.h
-│   └── network.h
+│   ├── network.h
+│   └── stats.h
 ├── src/                  # Source code
 │   ├── benchmark.cpp
+│   ├── config_yaml.cpp
 │   ├── hasher.cpp
 │   ├── http.cpp
 │   ├── json.cpp
 │   ├── logger.cpp
 │   ├── main.cpp
 │   ├── miner.cpp
-│   └── network.cpp
+│   ├── network.cpp
+│   └── stats.cpp
+├── img/                  # img
+│   ├── demo1.png
+│   └── demo2.png
 └── build/                # Build output (ignored)
-
+```
 
 ---
 
@@ -71,6 +80,7 @@ duino-cpu
 ```
 
 ```text
+-c, --config <file.yml>     Load configuration from YAML file
 -u, --user <username>       Duino-Coin username (required)
 -k, --key <mining_key>      Mining key (optional)
 -t, --threads <number>      Number of threads (default: auto)
@@ -89,6 +99,14 @@ duino-cpu
 ```bash
 ./duino-cpu -u your_username -k abc -t 4
 ```
+
+### Using config file
+
+```bash
+./duino-cpu -c config.yml
+```
+
+On first run without arguments, a default `config.yml` will be created.
 
 ---
 
